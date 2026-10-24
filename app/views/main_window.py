@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -10,8 +11,10 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFrame,
     QGridLayout,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -20,6 +23,8 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -82,8 +87,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Amazon Scraper")
-        self.resize(1120, 780)
-        self.setMinimumSize(920, 650)
+        self.resize(1240, 820)
+        self.setMinimumSize(1080, 700)
         self.thread: QThread | None = None
         self.worker: ScraperWorker | None = None
         self.category_checks: dict[str, QCheckBox] = {}
@@ -135,6 +140,7 @@ class MainWindow(QMainWindow):
             checkbox.setChecked(True)
             checkbox.setProperty("categoryKey", key)
             checkbox.setToolTip(f"Recherche Amazon : {query}")
+            checkbox.setMinimumHeight(40)
             self.category_checks[key] = checkbox
             categories_grid.addWidget(checkbox, index // 2, index % 2)
         left_layout.addLayout(categories_grid)
@@ -178,6 +184,10 @@ class MainWindow(QMainWindow):
         outputs_info = QLabel("SQLite  ·  CSV")
         outputs_info.setObjectName("outputInfo")
         left_layout.addWidget(outputs_info)
+        self.open_database_button = QPushButton("Consulter la base SQLite")
+        self.open_database_button.setObjectName("secondaryButton")
+        self.open_database_button.clicked.connect(self._open_database)
+        left_layout.addWidget(self.open_database_button)
         self.open_exports_button = QPushButton("Ouvrir le dossier des exports")
         self.open_exports_button.setObjectName("secondaryButton")
         self.open_exports_button.clicked.connect(self._open_exports)
@@ -228,32 +238,34 @@ class MainWindow(QMainWindow):
 
     def _apply_style(self) -> None:
         self.setStyleSheet("""
-            QWidget#background { background: #fff8fb; color: #382a32; }
-            QFrame#panel { background: #ffffff; border: 1px solid #f2dce5; border-radius: 9px; }
+            QWidget#background { background: #fff4f9; color: #382a32; }
+            QFrame#panel { background: #ffffff; border: 1px solid #f0c1d6; border-radius: 9px; }
             QLabel#title { color: #382a32; font-size: 27px; font-weight: 650; }
             QLabel#subtitle, QLabel#muted, QLabel#footer { color: #8c7781; }
             QLabel#subtitle { font-size: 13px; }
             QLabel#footer { font-size: 11px; }
             QLabel#sectionTitle { color: #42313a; font-size: 16px; font-weight: 650; }
             QLabel#fieldLabel { color: #604c56; font-size: 13px; font-weight: 600; }
-            QLabel#statusBadge { background: #fde8f0; color: #a23b66; border-radius: 5px; padding: 7px 10px; font-weight: 650; }
-            QLabel#hint { background: #fff1f6; color: #755b67; border-left: 3px solid #db789f; border-radius: 4px; padding: 10px; font-size: 12px; }
+            QLabel#statusBadge { background: #fce0ed; color: #a51e61; border-radius: 5px; padding: 7px 10px; font-weight: 650; }
+            QLabel#hint { background: #fff0f6; color: #755b67; border-left: 3px solid #e83e8c; border-radius: 4px; padding: 10px; font-size: 12px; }
             QLabel#outputInfo { color: #745968; font-weight: 550; padding: 4px 0; }
             QLabel#progressText { color: #58434e; font-weight: 600; }
             QLabel#resultCard { background: #fff5f8; border: 1px solid #f2dce5; border-radius: 6px; padding: 12px; color: #705866; }
-            QCheckBox { background: #fffafd; border: 1px solid #f0dce5; border-radius: 5px; padding: 10px 9px; color: #55414b; font-weight: 550; }
-            QCheckBox:hover { border-color: #e6a9c1; background: #fff3f7; }
+            QCheckBox { background: #ffffff; border: 1px solid #efc7d9; border-radius: 5px; padding: 10px 9px; color: #55414b; font-size: 12px; font-weight: 550; }
+            QCheckBox:hover { border-color: #e83e8c; background: #fff0f6; }
             QCheckBox::indicator { width: 17px; height: 17px; }
             QSpinBox { border: 1px solid #ead3dd; border-radius: 5px; background: #ffffff; padding: 7px 9px; min-width: 118px; color: #493740; }
             QPushButton { border-radius: 5px; padding: 10px 12px; font-weight: 650; }
-            QPushButton#primaryButton { background: #d96d98; color: #ffffff; border: none; font-size: 14px; }
-            QPushButton#primaryButton:hover { background: #ca5c87; }
-            QPushButton#primaryButton:disabled { background: #e8b4c8; color: #fffafd; }
-            QPushButton#secondaryButton { background: #fff1f6; color: #824d66; border: 1px solid #f0d5e0; }
-            QPushButton#secondaryButton:hover { background: #fce6ee; }
-            QProgressBar { height: 12px; border: 1px solid #f0dce5; border-radius: 4px; background: #fff3f7; text-align: center; color: transparent; }
-            QProgressBar::chunk { border-radius: 3px; background: #d96d98; }
-            QPlainTextEdit#logView { border: 1px solid #f0dce5; border-radius: 6px; background: #fffdfd; color: #66515c; padding: 9px; font-family: Consolas, monospace; font-size: 11px; }
+            QPushButton#primaryButton { background: #e83e8c; color: #ffffff; border: none; font-size: 14px; }
+            QPushButton#primaryButton:hover { background: #d92f7c; }
+            QPushButton#primaryButton:disabled { background: #efa0c3; color: #fffafd; }
+            QPushButton#secondaryButton { background: #fff0f6; color: #9c255e; border: 1px solid #efbfd4; }
+            QPushButton#secondaryButton:hover { background: #fbd9e8; border-color: #e83e8c; }
+            QProgressBar { height: 12px; border: 1px solid #efbfd4; border-radius: 4px; background: #fff0f6; text-align: center; color: transparent; }
+            QProgressBar::chunk { border-radius: 3px; background: #e83e8c; }
+            QTableWidget { background: #ffffff; alternate-background-color: #fff5f9; color: #493740; border: 1px solid #efbfd4; gridline-color: #f3d8e4; selection-background-color: #f5a3c5; selection-color: #382a32; }
+            QHeaderView::section { background: #fce0ed; color: #8f1d55; border: none; border-bottom: 1px solid #e83e8c; padding: 8px; font-weight: 650; }
+            QPlainTextEdit#logView { border: 1px solid #efbfd4; border-radius: 6px; background: #fffdfd; color: #66515c; padding: 9px; font-family: Consolas, monospace; font-size: 11px; }
         """)
     def _append_log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -324,6 +336,46 @@ class MainWindow(QMainWindow):
         self.market_combo.setEnabled(True)
         self.thread = None
         self.worker = None
+
+    def _open_database(self) -> None:
+        if not config.DATABASE_PATH.is_file():
+            QMessageBox.information(self, "Base SQLite", "Aucune base de données n’a encore été créée.")
+            return
+
+        try:
+            rows = ProductRepository(config.DATABASE_PATH).fetch_all()
+        except sqlite3.Error as error:
+            QMessageBox.warning(self, "Base SQLite", f"Impossible de lire la base de données : {error}")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Produits enregistrés dans SQLite")
+        dialog.resize(1100, 600)
+        layout = QVBoxLayout(dialog)
+        summary = QLabel(f"{len(rows)} produit(s) enregistré(s) dans la base de données")
+        summary.setObjectName("sectionTitle")
+        layout.addWidget(summary)
+
+        headers = ("ID", "Boutique", "Catégorie", "Produit", "Prix", "Note", "Avis", "Disponibilité", "Dernière collecte")
+        table = QTableWidget(len(rows), len(headers), dialog)
+        table.setHorizontalHeaderLabels(headers)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setAlternatingRowColors(True)
+        for row_index, values in enumerate(rows):
+            for column_index, value in enumerate(values):
+                if column_index == 2:
+                    value = CATEGORY_LABELS.get(value, value)
+                table.setItem(row_index, column_index, QTableWidgetItem("" if value is None else str(value)))
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(table)
+
+        close_button = QPushButton("Fermer")
+        close_button.setObjectName("primaryButton")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
+        dialog.exec()
 
     def _open_exports(self) -> None:
         config.EXPORT_DIR.mkdir(parents=True, exist_ok=True)

@@ -71,6 +71,18 @@ class ProductRepository:
         )
         self.connection.commit()
 
+    def fetch_all(self) -> list[tuple]:
+        connection = sqlite3.connect(self.database_path)
+        try:
+            return connection.execute(
+                """SELECT id, marketplace, category, title, price, rating,
+                          review_count, availability, scraped_at
+                   FROM products
+                   ORDER BY scraped_at DESC, id DESC"""
+            ).fetchall()
+        finally:
+            connection.close()
+
     def close(self) -> None:
         if self.connection is not None:
             self.connection.close()
