@@ -2,6 +2,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
+IMAGE_DIR = DATA_DIR / "images"
 EXPORT_DIR = BASE_DIR / "exports"
 DATABASE_PATH = DATA_DIR / "amazon_scraper.sqlite3"
 CSV_PATH = EXPORT_DIR / "produits.csv"
@@ -9,6 +10,7 @@ MAX_PRODUCTS_TOTAL = 50
 HEADLESS = False
 PAGE_LOAD_TIMEOUT_SECONDS = 30
 ELEMENT_WAIT_SECONDS = 12
+IMAGE_LOAD_TIMEOUT_SECONDS = 5
 REQUEST_PAUSE_SECONDS = 2
 
 MARKETPLACES = {

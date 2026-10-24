@@ -1,9 +1,13 @@
+import hashlib
+import re
+import unicodedata
 from time import sleep
 from typing import Callable
 from urllib.parse import urlencode
 
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as conditions
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -40,6 +44,7 @@ class AmazonScraper:
             self.on_progress(max(0, min(100, percent)), message)
 
     def scrape_all_categories(self) -> list[Product]:
+        config.IMAGE_DIR.mkdir(parents=True, exist_ok=True)
         products: list[Product] = []
         categories = list(self.categories.items())
         if not categories:
@@ -102,6 +107,7 @@ class AmazonScraper:
                 if product is None or product.title.casefold() in seen_titles:
                     continue
                 seen_titles.add(product.title.casefold())
+                self._save_product_image(card, product)
                 products.append(product)
                 if on_count is not None:
                     on_count(len(products))
@@ -133,6 +139,27 @@ class AmazonScraper:
                 break
             sleep(config.REQUEST_PAUSE_SECONDS)
         return products
+
+    def _save_product_image(self, card: WebElement, product: Product) -> None:
+        try:
+            image = card.find_element(By.CSS_SELECTOR, "img.s-image")
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center'});", image
+            )
+            WebDriverWait(self.driver, config.IMAGE_LOAD_TIMEOUT_SECONDS).until(
+                lambda _: image.get_property("naturalWidth") > 0
+            )
+            identity = f"{product.marketplace}\0{product.category}\0{product.title}"
+            digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+            title = unicodedata.normalize("NFKD", product.title)
+            title = title.encode("ascii", "ignore").decode("ascii").lower()
+            slug = re.sub(r"[^a-z0-9]+", "-", title).strip("-")[:48] or "produit"
+            category = re.sub(r"[^a-z0-9]+", "-", product.category.lower()).strip("-")
+            image_path = config.IMAGE_DIR / f"{category}-{slug}-{digest}.png"
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image.screenshot(str(image_path))
+        except (TimeoutException, WebDriverException, OSError):
+            return
 
     def close(self) -> None:
         if getattr(self, "driver", None) is not None:
