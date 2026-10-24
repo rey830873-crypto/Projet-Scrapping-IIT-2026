@@ -1,0 +1,1 @@
+"""Collecte web avec Selenium."""
